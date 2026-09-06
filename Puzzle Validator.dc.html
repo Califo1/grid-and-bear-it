@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #f7f4ec; color: #171310; }
+    a { color: #9a3520; }
+    a:hover { color: #6f2415; }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; font-family: 'Spectral', Georgia, serif; padding: 28px 30px 60px; max-width: 1180px; margin: 0 auto;">
+
+  <header style="border-bottom: 2px solid #171310; padding-bottom: 14px; margin-bottom: 22px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+    <div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #7d6f62; margin-bottom: 6px;">Grid &amp; Bear It · pre-publish gate</div>
+      <h1 style="margin: 0; font-size: 34px; font-weight: 600; letter-spacing: -0.01em;">Puzzle Validator</h1>
+    </div>
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; line-height: 1.7; color: #55483d; text-align: right;">
+      <div>{{ engineStatus }}</div>
+      <div>{{ runStatus }}</div>
+    </div>
+  </header>
+
+  <p style="margin: 0 0 20px; font-size: 15.5px; line-height: 1.62; max-width: 58em; color: #2e2620; text-wrap: pretty;">
+    Every puzzle type the book builder can emit, generated and then solved back by rules written independently of the generators. A type passes only when the printed clues admit exactly one answer, the printed solution is that answer, and nothing internal has leaked into reader-facing copy.
+  </p>
+
+  <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 24px;">
+    <button type="button" onClick="{{ runAll }}" style="all: unset; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; background: #9a3520; color: #fdf8ee; padding: 11px 20px; border: 1px solid #7b2917;" style-hover="background: #7b2917;">{{ runLabel }}</button>
+    <button type="button" onClick="{{ stop }}" style="all: unset; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; color: #55483d; padding: 11px 18px; border: 1px solid #c9bfae;" style-hover="border-color: #171310; color: #171310;">Stop</button>
+    <button type="button" onClick="{{ copyReport }}" style="all: unset; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; background: transparent; color: #55483d; padding: 11px 18px; border: 1px solid #c9bfae;" style-hover="border-color: #171310; color: #171310;">{{ copyLabel }}</button>
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7d6f62; letter-spacing: 0.06em;">{{ settingsLine }}</span>
+  </div>
+
+  <sc-if value="{{ hasVerdict }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-bottom: 26px; padding: 18px 20px; border: 1px solid #171310; background: #fdf8ee;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #7d6f62; margin-bottom: 8px;">Verdict</div>
+      <div style="font-size: 21px; line-height: 1.4; font-weight: 600; margin-bottom: 8px;">{{ verdictLine }}</div>
+      <div style="font-size: 14.5px; line-height: 1.6; color: #2e2620; max-width: 60em;">{{ verdictNote }}</div>
+    </section>
+  </sc-if>
+
+  <section style="margin-bottom: 26px; border: 1px solid #d6cbb8; background: #fdf8ee; padding: 18px 20px;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 10px;">
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #7d6f62;">Spot-check one book · interim</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55483d;">{{ bookLine }}</div>
+    </div>
+    <p style="margin: 0 0 14px; font-size: 14.5px; line-height: 1.6; color: #2e2620; max-width: 62em; text-wrap: pretty;">
+      Checking books by hand is not the plan. Build itself will check every page it generates and refuse to export a bad one, which is where this belongs. Until that lands, this loads the puzzles a build produced and solves each page back individually — useful for a book already made, not a step to keep doing.
+    </p>
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+      <label style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; background: #171310; color: #fdf8ee; padding: 11px 18px; cursor: pointer;" style-hover="background: #2e2620;">
+        Load a book file
+        <input type="file" accept=".json,application/json" onChange="{{ onFile }}" style="display: none;">
+      </label>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7d6f62;">{{ bookName }}</span>
+    </div>
+    <sc-if value="{{ hasBookNote }}" hint-placeholder-val="{{ false }}">
+      <p style="margin: 14px 0 0; padding: 12px 14px; background: #f7f1e0; border-left: 3px solid #b8862f; font-size: 13.5px; line-height: 1.55; color: #2e2620;">{{ bookNote }}</p>
+    </sc-if>
+    <sc-if value="{{ bookClean }}" hint-placeholder-val="{{ false }}">
+      <p style="margin: 14px 0 0; padding: 12px 14px; background: #eef4ec; border-left: 3px solid #3f7048; font-size: 14px; line-height: 1.55; color: #21301f;">Every page in this book solves to exactly one answer, and each answer page matches its puzzle. Nothing here blocks the upload.</p>
+    </sc-if>
+    <sc-if value="{{ hasBook }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+        <sc-for list="{{ bookRows }}" as="p" hint-placeholder-count="2">
+          <div style="display: grid; grid-template-columns: 90px 1.1fr 0.7fr 1fr 3fr; gap: 12px; padding: 10px 12px; background: {{ p.bg }}; border: 1px solid #e6ddcb; align-items: start;">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #55483d;">page {{ p.no }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #171310;">{{ p.type }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #7d6f62;">{{ p.diff }}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700; color: {{ p.fg }};">{{ p.verdict }}</span>
+            <span style="font-size: 13px; line-height: 1.5; color: #2e2620;">{{ p.note }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </section>
+
+  <sc-if value="{{ showReport }}" hint-placeholder-val="{{ false }}">
+    <section style="margin-bottom: 24px; border: 1px solid #171310; background: #fdf8ee; padding: 16px 18px;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 10px;">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #7d6f62;">Report — select all and copy</span>
+        <button type="button" onClick="{{ hideReport }}" style="all: unset; cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: #9a3520;">Hide</button>
+      </div>
+      <textarea readonly value="{{ reportText }}" onChange="{{ noop }}" style="width: 100%; height: 220px; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.55; padding: 12px; border: 1px solid #d6cbb8; background: #fffdf7; color: #171310; resize: vertical;"></textarea>
+    </section>
+  </sc-if>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; border: 1px solid #d6cbb8; background: #fdf8ee;">
+    <div style="display: grid; grid-template-columns: 1.5fr 0.8fr 0.5fr 0.5fr 0.6fr 2.4fr; gap: 12px; padding: 10px 14px; background: #efe8da; border-bottom: 1px solid #d6cbb8; font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: #55483d;">
+      <span>Type</span><span>Difficulty</span><span>Ran</span><span>Bad</span><span>Time</span><span>What went wrong</span>
+    </div>
+    <sc-for list="{{ rows }}" as="row" hint-placeholder-count="6">
+      <div style="display: grid; grid-template-columns: 1.5fr 0.8fr 0.5fr 0.5fr 0.6fr 2.4fr; gap: 12px; padding: 11px 14px; border-bottom: 1px solid #e6ddcb; align-items: start; background: {{ row.bg }};">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 500; color: #171310;">{{ row.label }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #55483d;">{{ row.diff }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #55483d;">{{ row.ran }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: {{ row.badFg }};">{{ row.bad }}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7d6f62;">{{ row.ms }}</span>
+        <span style="font-size: 13px; line-height: 1.5; color: #2e2620; word-break: break-word;">{{ row.note }}</span>
+      </div>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ empty }}" hint-placeholder-val="{{ false }}">
+    <p style="margin: 18px 0 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #7d6f62;">Nothing run yet.</p>
+  </sc-if>
+
+  <section style="margin-top: 34px; border-top: 1px solid #d6cbb8; padding-top: 18px;">
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #7d6f62; margin-bottom: 10px;">What each type is checked against</div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px 24px; font-size: 13.5px; line-height: 1.55; color: #2e2620;">
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Sudoku, KenKen, Kakuro, Nonogram</strong><br>Solved from the printed clues alone. Exactly one answer, and it must equal the printed solution.</div>
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Crossword</strong><br>Every entry matches the grid, crosses another entry, and carries a real clue — a generated stand-in counts as a failure.</div>
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Fill-in</strong><br>The bank matches the grid's slots, and the bank can be placed exactly one way.</div>
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Word search</strong><br>Every listed word is actually in the grid; duplicates and unplaced words are reported.</div>
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Cryptogram</strong><br>The cipher is a true one-to-one substitution, no letter stands for itself, and it decodes to the stated answer.</div>
+      <div><strong style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">Ladder, anagram, scramble, math, maze, trivia</strong><br>Each step, pairing, sum and path is recomputed and compared with what the page prints.</div>
+    </div>
+  </section>
+
+  <p style="margin: 26px 0 0; font-family: 'JetBrains Mono', monospace; font-size: 10px; line-height: 1.7; color: #7d6f62; max-width: 60em;">
+    Generation runs in a worker with a per-puzzle time limit, so a generator that never returns is reported as a timeout instead of freezing this page. Serve the folder over http — a worker cannot import scripts from a file:// path.
+  </p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 1180, &quot;height&quot;: 860 },
+  &quot;samples&quot;: { &quot;editor&quot;: &quot;int&quot;, &quot;default&quot;: 4, &quot;min&quot;: 1, &quot;max&quot;: 20, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Sweep&quot;, &quot;unit&quot;: &quot;per case&quot; },
+  &quot;budgetMs&quot;: { &quot;editor&quot;: &quot;int&quot;, &quot;default&quot;: 6000, &quot;min&quot;: 500, &quot;max&quot;: 60000, &quot;step&quot;: 500, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Sweep&quot;, &quot;unit&quot;: &quot;ms per puzzle&quot; },
+  &quot;difficulties&quot;: { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;beginner,easy,medium,hard,expert&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Sweep&quot; },
+  &quot;theme&quot;: { &quot;editor&quot;: &quot;text&quot;, &quot;default&quot;: &quot;none&quot;, &quot;tsType&quot;: &quot;string&quot;, &quot;section&quot;: &quot;Sweep&quot; },
+  &quot;largePrint&quot;: { &quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: false, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Sweep&quot; }
+}">
+const CASES = [
+  ["sudoku", "Sudoku 9×9"], ["sudoku6", "Sudoku 6×6"], ["sudoku12", "Sudoku 12×12"],
+  ["xsudoku", "Sudoku X"], ["irregular", "Jigsaw sudoku"],
+  ["wordsearch", "Word search"], ["crossword", "Crossword"], ["fillin", "Fill-in"],
+  ["cryptogram", "Cryptogram"], ["scramble", "Word scramble"], ["anagram", "Anagram match"],
+  ["wordladder", "Word ladder"], ["kenken", "KenKen"], ["kakuro", "Kakuro"],
+  ["math", "Math drill"], ["nonogram", "Nonogram"], ["logicgrid", "Logic grid"],
+  ["maze", "Maze"], ["trivia", "Trivia"], ["dottodot", "Dot-to-dot"], ["coloring", "Coloring"]
+];
+
+const WORKER_SRC = `
+self.window = self;
+var ENG = null, CHK = null;
+function boot(base) {
+  if (ENG) return;
+  importScripts(base + "engines.bundle.js", base + "puzzle-checks.js");
+  ENG = Object.assign({}, self.PZ_ENGINE || {}, self.PZ_EXTRA || {});
+  CHK = self.PZ_CHECKS || {};
+}
+function themeFor(key) {
+  var T = (self.PZ_ENGINE && self.PZ_ENGINE.THEMES) || {};
+  return T[key] || T.none || { label: "No theme", words: [] };
+}
+function makeOne(type, diff, theme, i, largePrint) {
+  var E = ENG, lp = largePrint;
+  switch (type) {
+    case "sudoku": return E.sudokuVariant({ size: 9, variant: "classic", difficulty: diff });
+    case "sudoku6": return E.sudokuVariant({ size: 6, variant: "classic", difficulty: diff });
+    case "sudoku12": return E.sudokuVariant({ size: 12, variant: "classic", difficulty: diff });
+    case "xsudoku": return E.sudokuVariant({ size: 9, variant: "x", difficulty: diff });
+    case "irregular": return E.sudokuVariant({ size: 9, variant: "irregular", difficulty: diff });
+    case "wordsearch": return E.wordSearch(theme.words.slice(0, lp ? 12 : 16), lp ? 13 : 15, { backwards: diff !== "beginner", diagonal: diff !== "beginner" });
+    case "crossword": return E.crossword(theme, diff);
+    case "fillin": return E.fillIn(E.crossword(theme, diff));
+    case "cryptogram": return E.cryptogram(i);
+    case "scramble": return E.scramble(theme.words, lp ? 10 : 14);
+    case "anagram": return E.anagramMatch(theme.words, lp ? 8 : 10);
+    case "wordladder": return E.wordLadder(diff, i);
+    case "kenken": return E.kenken(diff);
+    case "kakuro": return E.kakuro(diff);
+    case "math": return E.mathDrill(diff);
+    case "nonogram": return E.nonogram(diff);
+    case "logicgrid": return E.logicGrid(diff, i);
+    case "maze": return E.maze(diff);
+    case "trivia": return E.trivia(lp ? 8 : 12, i);
+    case "dottodot": return E.dotToDot(diff, i);
+    case "coloring": return E.coloringPattern(i);
+    default: return E.mathDrill(diff);
+  }
+}
+var CHECK_FOR = {
+  sudoku: "sudokuVariant", sudoku6: "sudokuVariant", sudoku12: "sudokuVariant",
+  xsudoku: "sudokuVariant", irregular: "sudokuVariant", fillin: "fillin",
+  math: "math", dottodot: "dottodot", coloring: "coloring"
+};
+// A puzzle carried in from a built book: check it as it stands, generate nothing.
+var KIND_TO_CHECK = {
+  sudoku: "sudokuVariant", sudoku6: "sudokuVariant", sudoku12: "sudokuVariant",
+  xsudoku: "sudokuVariant", irregular: "sudokuVariant", fillin: "fillin",
+  math: "math", dottodot: "dottodot", coloring: "coloring", wordsearch: "wordsearch",
+  crossword: "crossword", cryptogram: "cryptogram", scramble: "scramble",
+  anagram: "anagram", wordladder: "wordladder", kenken: "kenken", kakuro: "kakuro",
+  nonogram: "nonogram", logicgrid: "logicgrid", maze: "maze", trivia: "trivia"
+};
+self.onmessage = function (e) {
+  var d = e.data;
+  try { boot(d.base); } catch (err) {
+    self.postMessage({ id: d.id, error: "cannot load engines: " + err.message }); return;
+  }
+  var t0 = Date.now(), out;
+  if (d.verify) {
+    try {
+      var key = KIND_TO_CHECK[d.verify.type] || KIND_TO_CHECK[d.verify.kind] || d.verify.kind;
+      var f2 = CHK[key];
+      if (!f2) { self.postMessage({ id: d.id, error: "no check written for " + (d.verify.type || d.verify.kind) }); return; }
+      out = f2(d.verify, {});
+      self.postMessage({ id: d.id, fails: out.fails, warns: out.warns, ms: Date.now() - t0 });
+    } catch (err2) {
+      self.postMessage({ id: d.id, error: (err2 && err2.message) || String(err2), ms: Date.now() - t0 });
+    }
+    return;
+  }
+  try {
+    var theme = themeFor(d.theme);
+    var p = makeOne(d.type, d.diff, theme, d.i, d.largePrint);
+    var gen = Date.now() - t0;
+    var fn = CHK[CHECK_FOR[d.type] || d.type];
+    if (!fn) { self.postMessage({ id: d.id, error: "no check written for " + d.type, ms: gen }); return; }
+    var ctx = {};
+    if (d.type === "wordsearch") ctx.requested = Math.min(theme.words.length, d.largePrint ? 12 : 16);
+    out = fn(p, ctx);
+    // Signature over the whole puzzle. Keying it off one field made types that
+    // lack that field all serialise the same and look like duplicates.
+    var sig = null;
+    try { sig = JSON.stringify(p).slice(0, 20000); } catch (x) { sig = null; }
+    self.postMessage({ id: d.id, fails: out.fails, warns: out.warns, ms: Date.now() - t0, gen: gen, sig: sig });
+  } catch (err) {
+    self.postMessage({ id: d.id, error: (err && err.message) || String(err), ms: Date.now() - t0 });
+  }
+};
+`;
+
+class Component extends DCLogic {
+  state = { rows: [], running: false, stopped: false, note: "", copied: null, engine: "worker not started", done: 0, total: 0,
+            book: [], bookName: "", bookNote: "", bookRunning: false, showReport: false };
+
+  componentWillUnmount() { this.kill(); }
+
+  base() {
+    const u = new URL(".", location.href);
+    return u.href;
+  }
+
+  kill() {
+    if (this._w) { try { this._w.terminate(); } catch (e) {} this._w = null; }
+    if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+  }
+
+  spawn() {
+    this.kill();
+    const blob = new Blob([WORKER_SRC], { type: "text/javascript" });
+    this._w = new Worker(URL.createObjectURL(blob));
+    return this._w;
+  }
+
+  // One puzzle per message, so a hang is attributed to the puzzle that hung.
+  one(job, budget) {
+    return new Promise((resolve) => {
+      const w = this._w || this.spawn();
+      const id = Math.random().toString(36).slice(2);
+      let settled = false;
+      const finish = (r) => { if (settled) return; settled = true; clearTimeout(t); w.onmessage = null; resolve(r); };
+      const t = setTimeout(() => { this.kill(); finish({ timeout: true, ms: budget }); }, budget);
+      w.onmessage = (e) => { if (e.data && e.data.id === id) finish(e.data); };
+      w.onerror = (e) => finish({ error: (e && e.message) || "worker error" });
+      w.postMessage(Object.assign({ id, base: this.base() }, job));
+    });
+  }
+
+  async runAll() {
+    if (this.state.running) return;
+    const samples = Math.max(1, Math.min(20, this.props.samples ?? 4));
+    const budget = Math.max(500, Math.min(60000, this.props.budgetMs ?? 6000));
+    const diffs = (this.props.difficulties ?? "beginner,easy,medium,hard,expert").split(",").map((s) => s.trim()).filter(Boolean);
+    const theme = this.props.theme ?? "none";
+    const largePrint = !!(this.props.largePrint ?? false);
+    const total = CASES.length * diffs.length;
+    this.setState({ running: true, stopped: false, rows: [], done: 0, total, copied: false });
+    const rows = [];
+    for (const [type, label] of CASES) {
+      for (const diff of diffs) {
+        if (this.state.stopped) break;
+        const fails = [], warns = [], sigs = {};
+        let bad = 0, ran = 0, ms = 0, timedOut = 0, dupes = 0;
+        for (let i = 0; i < samples; i++) {
+          if (this.state.stopped) break;
+          const r = await this.one({ type, diff, i, theme, largePrint }, budget);
+          ran++;
+          ms += r.ms || 0;
+          if (r.timeout) { timedOut++; bad++; fails.push("did not finish inside " + budget + "ms — the build would freeze here"); continue; }
+          if (r.error) { bad++; fails.push("threw: " + r.error); continue; }
+          if (r.fails && r.fails.length) { bad++; for (const f of r.fails) if (fails.indexOf(f) < 0) fails.push(f); }
+          if (r.warns) for (const w of r.warns) if (warns.indexOf(w) < 0) warns.push(w);
+          if (r.sig) { if (sigs[r.sig]) dupes++; else sigs[r.sig] = 1; }
+        }
+        if (dupes) warns.push(dupes + " of " + ran + " samples came out identical — the same page would repeat in a book");
+        rows.push(this.row(type, label, diff, ran, bad, ms, fails, warns, timedOut));
+        this.setState({ rows: rows.slice(), done: rows.length });
+      }
+      if (this.state.stopped) break;
+    }
+    this.kill();
+    this.setState({ running: false });
+  }
+
+  row(type, label, diff, ran, bad, ms, fails, warns, timedOut) {
+    const parts = [];
+    if (fails.length) parts.push(fails.slice(0, 3).join(" · "));
+    if (warns.length) parts.push("warning: " + warns.slice(0, 2).join(" · "));
+    return {
+      type, label, diff, ran, bad,
+      ms: ran ? Math.round(ms / ran) + "ms" : "—",
+      note: parts.length ? parts.join("  |  ") : "clean",
+      bg: bad ? "#fbeee9" : warns.length ? "#fdfaf0" : "transparent",
+      badFg: bad ? "#9a3520" : "#7d6f62",
+      fails, warns, timedOut
+    };
+  }
+
+  report() {
+    const samples = this.props.samples ?? 4;
+    const lines = ["GRID & BEAR IT — PUZZLE VALIDATOR", new Date().toISOString()];
+    if (this.state.rows.length) {
+      const bad = this.state.rows.filter((r) => r.bad > 0);
+      lines.push("SWEEP: " + this.state.rows.length + " cases, " + samples + " samples each, " + bad.length + " failing");
+      lines.push("");
+      this.state.rows.forEach((r) => {
+        lines.push((r.bad ? "FAIL " : r.warns.length ? "WARN " : "pass ") + r.label + " / " + r.diff + " — " + r.bad + " bad of " + r.ran + " (" + r.ms + ")");
+        r.fails.forEach((f) => lines.push("    ! " + f));
+        r.warns.forEach((w) => lines.push("    ~ " + w));
+      });
+    }
+    if (this.state.book.length) {
+      const bad = this.state.book.filter((p) => p.fails.length);
+      lines.push("");
+      lines.push("BOOK: " + this.state.bookName + " — " + this.state.book.length + " puzzles, " + bad.length + " unfit to print");
+      lines.push("");
+      this.state.book.forEach((p) => {
+        if (!p.fails.length && !p.warns.length) return;
+        lines.push((p.fails.length ? "FAIL " : "WARN ") + "puzzle " + p.no + " · " + p.type + " · " + p.diff);
+        p.fails.forEach((f) => lines.push("    ! " + f));
+        p.warns.forEach((w) => lines.push("    ~ " + w));
+      });
+    }
+    return lines.join("\n");
+  }
+
+  // Clipboard writes are refused in some embedded frames, and the failure is
+  // silent. Always put the text on the page as well, so it can be selected.
+  copyText(text) {
+    let ok = false;
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch (e) { ok = false; }
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(
+        () => this.setState({ copied: "Copied" }),
+        () => this.setState({ copied: "Blocked — use the text below" })
+      );
+    }
+    this.setState({ copied: ok ? "Copied" : "Blocked — use the text below", showReport: true });
+    setTimeout(() => this.setState({ copied: null }), 3000);
+  }
+
+  async loadBook(file) {
+    if (!file) return;
+    let data;
+    try { data = JSON.parse(await file.text()); }
+    catch (e) { this.setState({ bookNote: "That file is not readable JSON.", book: [], bookName: file.name }); return; }
+    const puzzles = this.puzzlesIn(data);
+    if (!puzzles) {
+      this.setState({
+        book: [], bookName: file.name,
+        bookNote: "This is a saved book plan — the settings, not the pages. Grid & Bear It writes the puzzles it generated into the browser, not into .gridbook.json, so there is nothing here to check page by page. The plan can still be replayed: " + this.planSummary(data)
+      });
+      return;
+    }
+    this.setState({ bookName: file.name, bookNote: "", book: [], bookRunning: true });
+    const out = [];
+    for (let i = 0; i < puzzles.length; i++) {
+      const p = puzzles[i];
+      const r = await this.checkOne(p, i);
+      out.push(r);
+      if (i % 5 === 4 || i === puzzles.length - 1) this.setState({ book: out.slice() });
+    }
+    this.setState({ book: out, bookRunning: false });
+  }
+
+  puzzlesIn(data) {
+    if (Array.isArray(data) && data.length && (data[0].kind || data[0].type)) return data;
+    const cands = [data && data.puzzles, data && data.built && data.built.puzzles, data && data.book && data.book.built && data.book.built.puzzles];
+    for (const c of cands) if (Array.isArray(c) && c.length) return c;
+    return null;
+  }
+
+  planSummary(data) {
+    const b = (data && data.book) || data || {};
+    const c = b.cfg || b.config || {};
+    const bits = [];
+    if (c.title) bits.push("\u201c" + c.title + "\u201d");
+    if (c.types) bits.push("types " + [].concat(c.types).join(", "));
+    if (c.diffs) bits.push("difficulty " + [].concat(c.diffs).join(" to "));
+    if (c.pages) bits.push(c.pages + " pages");
+    if (c.largePrint) bits.push("large print");
+    return bits.length ? bits.join(" · ") : "no recognisable settings in the file.";
+  }
+
+  async checkOne(p, i) {
+    const type = p.type || p.kind;
+    const diff = p.difficulty || "—";
+    const budget = Math.max(500, Math.min(60000, this.props.budgetMs ?? 6000));
+    const r = await this.one({ verify: p, type, diff }, budget);
+    const no = p.no || i + 1;
+    if (r.timeout) return { no, type, diff, fails: ["checking it exceeded " + budget + "ms"], warns: [] };
+    if (r.error) return { no, type, diff, fails: ["could not be checked: " + r.error], warns: [] };
+    return { no, type, diff, fails: r.fails || [], warns: r.warns || [] };
+  }
+
+  renderVals() {
+    const rows = this.state.rows;
+    const bad = rows.filter((r) => r.bad > 0);
+    const warnOnly = rows.filter((r) => !r.bad && r.warns.length);
+    const types = {};
+    bad.forEach((r) => { types[r.label] = 1; });
+    const badTypes = Object.keys(types);
+    const samples = this.props.samples ?? 4;
+    const budget = this.props.budgetMs ?? 6000;
+    const diffs = (this.props.difficulties ?? "beginner,easy,medium,hard,expert").split(",").map((s) => s.trim()).filter(Boolean);
+    return {
+      rows,
+      empty: !rows.length && !this.state.running,
+      runLabel: this.state.running ? "Running " + this.state.done + "/" + this.state.total : "Run full sweep",
+      runAll: () => this.runAll(),
+      stop: () => { this.setState({ stopped: true, running: false }); this.kill(); },
+      settingsLine: samples + " samples × " + diffs.length + " difficulties · " + budget + "ms limit per puzzle" + ((this.props.largePrint ?? false) ? " · large print" : ""),
+      engineStatus: this.state.running ? "generating in worker" : rows.length ? rows.length + " cases run" : "idle",
+      runStatus: rows.length ? (bad.length ? bad.length + " failing cases" : "no failures") : "",
+      hasVerdict: rows.length > 0 && !this.state.running,
+      verdictLine: !rows.length ? "" : bad.length
+        ? badTypes.length + " puzzle type" + (badTypes.length === 1 ? "" : "s") + " must not be published: " + badTypes.join(", ")
+        : "All " + rows.length + " cases pass.",
+      verdictNote: !rows.length ? "" : bad.length
+        ? "Each failing row below names what a solver found. A book containing these types will ship pages that cannot be solved as printed, or whose answer page is not the only answer."
+        : warnOnly.length
+          ? warnOnly.length + " case(s) carry warnings — solvable, but worth reading before a paid book goes out."
+          : "Nothing to hold publishing for, at these sample counts.",
+      copyLabel: this.state.copied || "Copy report",
+      copyReport: () => this.copyText(this.report()),
+      showReport: this.state.showReport,
+      noop: () => {},
+      reportText: this.state.showReport ? this.report() : "",
+      hideReport: () => this.setState({ showReport: false }),
+      onFile: (e) => {
+        const file = e.target.files && e.target.files[0];
+        this.loadBook(file);
+      },
+      bookName: this.state.bookName || "no book loaded",
+      bookNote: this.state.bookNote,
+      hasBookNote: !!this.state.bookNote,
+      bookRows: this.state.book.filter((p) => p.fails.length || p.warns.length).map((p) => ({
+        no: p.no, type: p.type, diff: p.diff,
+        note: p.fails.concat(p.warns.map((w) => "warning: " + w)).join(" · "),
+        bg: p.fails.length ? "#fbeee9" : "#fdfaf0",
+        fg: p.fails.length ? "#9a3520" : "#7d6f62",
+        verdict: p.fails.length ? "unfit to print" : "warning"
+      })),
+      hasBook: this.state.book.length > 0,
+      bookLine: this.state.book.length
+        ? (this.state.bookRunning ? "checking — " : "") + this.state.book.length + " puzzles checked · " + this.state.book.filter((p) => p.fails.length).length + " unfit to print"
+        : "",
+      bookClean: this.state.book.length > 0 && !this.state.bookRunning && this.state.book.every((p) => !p.fails.length)
+    };
+  }
+}
+</script>
+</body>
+</html>

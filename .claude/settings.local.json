@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cygpath -w \"$\\(pwd\\)/test.html\")",
+      "Bash(mkdir -p _worker_probe)",
+      "Bash(cp \"/d/AmScope_Temp/claude/C--Users-bonza-Dropbox-Book-Projects-Grid---Bear-It/3b9b1b27-2396-4928-be8e-aaef6d1762ed/scratchpad/worker-test/\"* _worker_probe/)",
+      "mcp__claude-in-chrome__navigate",
+      "Bash(curl -sI \"https://fonts.googleapis.com/css2?family=Nunito:wght@400\")",
+      "Bash(mkdir -p _fonts)",
+      "Bash(curl -s -A 'Mozilla/5.0 \\(Windows NT 10.0; Win64; x64\\) AppleWebKit/537.36 \\(KHTML, like Gecko\\) Chrome/124.0 Safari/537.36' 'https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700&family=Archivo:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&family=Bree+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap' -o _fonts/fonts.css)",
+      "Bash(grep -c \"^/\\\\* latin \\\\*/\" _fonts/fonts.css)",
+      "Bash(grep -oP \"\\(?<=/\\\\* \\)[a-z-]+\\(?= \\\\*/\\)\")",
+      "Bash(node --check engines.bundle.js)",
+      "Bash(node -e ' *)",
+      "Bash(rm -f /tmp/regen_bundle.js /tmp/inline_build.js)",
+      "Bash(node --check _chk_0.js)",
+      "Bash(node --check _chk_1.js)",
+      "Bash(rm -f _chk_0.js _chk_1.js)",
+      "Bash(cp _final_build.html \"Grid and Bear It Studio \\(offline app\\).html\")",
+      "Bash(cp _final_build.html \"docs/index.html\")",
+      "Bash(rm -f _final_build.html /tmp/build_all.js)"
+    ]
+  }
+}
