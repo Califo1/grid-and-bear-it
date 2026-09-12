@@ -27,6 +27,7 @@ polish, not missing capability.
 | `puzzle-engine.js` | 8 generators + 30 topic libraries | Pure, no DOM |
 | `puzzle-engine-extra.js` | 13 generators incl. all verifiers | Pure, no DOM |
 | `kdp-guru.js` | All KDP domain knowledge | Single source of truth — do not inline these values elsewhere |
+| `puzzle-checks.js` | The bench — one verifier per puzzle type, written against the rules not the generators | Never edit it to make a generator pass; fix the generator instead |
 | `engines.bundle.js` | **Generated.** Never hand-edit | Regenerate after any engine change |
 | `docs/index.html` | **Generated.** Never hand-edit | Regenerate from the bundle |
 | `vendor/` | Committed third-party assets (decision SC21) | See below; do not fetch these at build time |
@@ -67,6 +68,8 @@ node pack-offline.mjs
 `build-bundle.mjs` regenerates `engines.bundle.js` from `puzzle-engine.js`,
 `puzzle-engine-extra.js` and `kdp-guru.js`. `pack-offline.mjs` re-inlines
 `Grid & Bear It Studio.dc.html` — plus the freshly regenerated bundle,
+`puzzle-checks.js` (unlike the three engine modules, it's already a classic
+script, so it's inlined as-is rather than going through the bundler),
 `support.js`, and the vendored React/ReactDOM/fonts in `./vendor` — into both
 `Grid and Bear It Studio (offline app).html` and `docs/index.html`, which come
 out byte-identical. **`engines.bundle.js` and `docs/index.html` are generated
@@ -161,6 +164,32 @@ per view and `model()` per page. That catches every throw on the render path —
 undefined families, layout drift, stale bindings — and is how the staircase
 logic-grid render and all six interior families were checked. It does not catch
 visual regressions, so it supplements looking rather than replacing it.
+
+**Every generator's output is checked at one call boundary (decisions S27,
+T25).** `checkedMake(type, diff, theme, i)` in the DC is the only path from a
+type id to a puzzle object — `makeOne()` (the raw per-type dispatch switch) is
+private to it and is never called from anywhere else. `checkedMake` calls
+`makeOne`, then always runs the result through `puzzle-checks.js` (loaded as a
+plain script alongside `engines.bundle.js`, mapped type id → checker via
+`CHECK_FOR`, e.g. all five sudoku variants share `sudokuVariant`) before
+handing it back. A missing checker is treated as a failure, not skipped — the
+whole point is that nothing can get out unchecked, including if the bench
+itself failed to load. `build()`'s per-page loop and the Workbench's `wbGen()`
+are both call sites; there is no third way to turn a type id into a puzzle in
+this app. A generator that returns `null`/throws, or a puzzle that fails a
+check, produces the same refusal shape either way — `Page N (Type) could not
+be built: <reason>` — so build() never commits `this.state.built` for a book
+with a bad page, which is what keeps a failing page from reaching export
+(`cannotExportInterior()` on the print/HTML-export call sites is the second
+half of that guarantee, for the case where nothing has been built at all yet).
+The Build panel's progress bar and the Preflight panel's
+`puzzle-checks.js`/verdict row both read `built().checkVerdict` (e.g. "170 of
+170 pages check out"), so the result is visible without opening the console.
+Before this, only crossword, fill-in, nonogram and kakuro had any internal
+uniqueness proof before returning (sudoku's variants also self-verify via
+`makeSolver`'s own solution counter while digging givens); the other types
+returned whatever they built. `checkedMake` closes that gap uniformly instead
+of adding more one-off internal checks per generator.
 
 **Interior design families** are defined in `INTERIORS` in the DC: playhouse,
 funfair, popquiz, gardenparty, newsprint, clarity. Each carries a display font, a

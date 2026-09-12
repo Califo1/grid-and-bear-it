@@ -145,6 +145,7 @@ async function main() {
   const dc = fs.readFileSync(SOURCE_DC, "utf8");
   const supportJs = fs.readFileSync(path.join(REPO, "support.js"), "utf8");
   const engineBundle = fs.readFileSync(path.join(REPO, "engines.bundle.js"), "utf8");
+  const puzzleChecks = fs.readFileSync(path.join(REPO, "puzzle-checks.js"), "utf8");
 
   const fontLinkMatch = dc.match(/<link href="(https:\/\/fonts\.googleapis\.com\/css2\?[^"]+)" rel="stylesheet" \/>/);
   if (!fontLinkMatch) throw new Error("could not find the Google Fonts <link> in the DC source");
@@ -169,9 +170,9 @@ async function main() {
   );
   out = replaceOnce(
     out,
-    '<script src="engines.bundle.js"></script>\n',
+    '<script src="engines.bundle.js"></script>\n<script src="puzzle-checks.js"></script>\n',
     "",
-    "engines.bundle.js <script src> (removed from <helmet>)"
+    "engines.bundle.js + puzzle-checks.js <script src> (removed from <helmet>)"
   );
   out = replaceOnce(
     out,
@@ -186,6 +187,7 @@ async function main() {
     `<title>Grid &amp; Bear It Studio</title>\n` +
       `<style>\n${vendor.fontsCss}\n</style>\n` +
       `<script>\n${engineBundle}\n</script>\n` +
+      `<script>\n${puzzleChecks}\n</script>\n` +
       `<script>window.__resources = {};</script>\n` +
       `<script>\n${vendor.react}\n</script>\n` +
       `<script>\n${vendor.reactDom}\n</script>\n` +

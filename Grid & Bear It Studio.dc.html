@@ -12,6 +12,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
 <link href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,600;6..96,700&family=Archivo:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@400;600;700;800&family=Bree+Serif&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
 <script src="engines.bundle.js"></script>
+<script src="puzzle-checks.js"></script>
 <style>
   html, body { margin: 0; padding: 0; background: #eef1f8; }
   a { color: #5b34d8; text-decoration: none; }
@@ -499,6 +500,15 @@ const TYPES = [
   { id: "dottodot", label: "Dot to dot", note: "kids", family: "activity" },
   { id: "coloring", label: "Coloring page", note: "pattern", family: "activity" },
 ];
+// puzzle-checks.js (board S27): the bench a generator's raw output must clear
+// before it can leave checkedMake(). Most type ids share their own name with
+// a PZ_CHECKS function; these five don't, either because one checker serves
+// several sudoku variants or because the check key differs from the type id.
+const CHECK_FOR = {
+  sudoku: "sudokuVariant", sudoku6: "sudokuVariant", sudoku12: "sudokuVariant",
+  xsudoku: "sudokuVariant", irregular: "sudokuVariant", fillin: "fillin",
+  math: "math", dottodot: "dottodot", coloring: "coloring",
+};
 const DIFFS = [
   { id: "beginner", label: "Beginner", note: "warm-up" },
   { id: "easy", label: "Easy", note: "relaxed" },
@@ -661,7 +671,7 @@ function defaultCfg() {
 
 class Component extends DCLogic {
   state = {
-    view: "s1", printing: null, pageIdx: 0, zoom: 0.5, building: false, progress: 0, buildError: "",
+    view: "s1", printing: null, pageIdx: 0, zoom: 0.5, building: false, progress: 0, checked: 0, checkVerdict: "", buildError: "",
     books: [{ id: "bk1", cfg: defaultCfg() }], activeId: "bk1",
     built: null, sample: false, search: "", saveNote: "", copied: "",
     aiOpen: false, aiBusy: "", aiLog: [],
@@ -712,6 +722,7 @@ class Component extends DCLogic {
   loadEngines(tries) {
     if (globalThis.PZ_ENGINE && globalThis.PZ_EXTRA && globalThis.PZ_GURU) {
       this.E = globalThis.PZ_ENGINE; this.X = globalThis.PZ_EXTRA; this.K = globalThis.PZ_GURU;
+      this.CHK = globalThis.PZ_CHECKS || {};
       this.forceUpdate();
       return;
     }
@@ -842,10 +853,48 @@ class Component extends DCLogic {
     }
   }
 
+  // The call boundary (board S27): the only path from a type id to a puzzle
+  // object that this app is allowed to use. makeOne() above is never called
+  // directly from anywhere else — a generator's raw output always passes
+  // through puzzle-checks.js here before build() or the Workbench can accept
+  // it, so no generator can hand back an unchecked puzzle. A missing checker
+  // is treated as a failure, not a free pass: silently skipping verification
+  // because the bench didn't load would be the same hole this exists to close.
+  checkedMake(type, diff, theme, i) {
+    let p, threw = null;
+    try { p = this.makeOne(type, diff, theme, i); }
+    catch (err) { threw = err; }
+    if (threw) return { ok: false, reason: threw.message || String(threw) };
+    if (!p) {
+      const reason = (type === "crossword" || type === "fillin")
+        ? `"${theme.label}" doesn't have enough clued words yet for a ${this.typeName(type)}, or no unique arrangement could be found in time.`
+        : `the generator could not produce a valid, uniquely-solvable puzzle for "${theme.label}" at ${diff} difficulty.`;
+      return { ok: false, reason };
+    }
+    const checkKey = CHECK_FOR[type] || type;
+    const fn = this.CHK && this.CHK[checkKey];
+    if (!fn) return { ok: false, reason: `no puzzle-checks.js verifier for ${this.typeName(type)} — cannot accept this page unchecked` };
+    const ctx = {};
+    if (type === "wordsearch") ctx.requested = Math.min(theme.words.length, this.cfg().largePrint ? 12 : 16);
+    let out;
+    try { out = fn(p, ctx); }
+    catch (err2) { return { ok: false, reason: "puzzle-checks.js threw while verifying: " + (err2.message || err2) }; }
+    if (out.fails && out.fails.length) return { ok: false, reason: out.fails.join("; ") };
+    return { ok: true, puzzle: p, warns: out.warns || [] };
+  }
+
+  // Board T25: puzzle-checks.js runs per page, as the last thing that happens
+  // to each page before build() will accept it — checkedMake() above does the
+  // generating and the checking together so a checked page is the only kind
+  // of page this loop ever produces, then "checked" ticks up right alongside
+  // "generated" so the two numbers the user sees never drift apart. Nothing
+  // is committed to this.state.built until every page in the book has
+  // checked out, so a book containing a failing page cannot reach export —
+  // the refusal below names the page, its type, and the reason.
   async build(sample) {
     if (!this.E || this.state.building) return;
     const c = this.cfg(), themes = this.themeObjs();
-    this.setState({ building: true, progress: 0, sample: !!sample, view: "build", buildError: "" });
+    this.setState({ building: true, progress: 0, checked: 0, checkVerdict: "", sample: !!sample, view: "build", buildError: "" });
     await new Promise((r) => setTimeout(r, 30));
     const plan = this.plan(sample);
     const puzzles = [];
@@ -853,28 +902,23 @@ class Component extends DCLogic {
       const type = c.types[i % c.types.length];
       const diff = plan.diffOf(i);
       const th = themes[i % themes.length];
-      let p, threw = null;
-      try { p = this.makeOne(type, diff, th, i); }
-      catch (err) { threw = err; }
-      if (threw || !p) {
-        const reason = threw
-          ? (threw.message || String(threw))
-          : (type === "crossword" || type === "fillin")
-            ? `"${th.label}" doesn't have enough clued words yet for a ${this.typeName(type)}, or no unique arrangement could be found in time.`
-            : `the generator could not produce a valid, uniquely-solvable puzzle for "${th.label}" at ${diff} difficulty.`;
-        this.setState({ building: false, progress: 0, buildError:
-          `Page ${i + 1} (${this.typeName(type)}) could not be built: ${reason} ` +
+      const r = this.checkedMake(type, diff, th, i);
+      if (!r.ok) {
+        this.setState({ building: false, progress: 0, checked: 0, buildError:
+          `Page ${i + 1} (${this.typeName(type)}) could not be built: ${r.reason} ` +
           `Choose a different topic or difficulty, or remove ${this.typeName(type)} from the puzzle types in step 5, then build again.` });
         return;
       }
+      const p = r.puzzle;
       p.theme = th.label; p.difficulty = diff; p.no = i + 1; p.type = type;
       puzzles.push(p);
       if (i % 2 === 1 || i === plan.count - 1) {
-        this.setState({ progress: Math.round(((i + 1) / plan.count) * 100) });
-        await new Promise((r) => setTimeout(r, 0));
+        this.setState({ progress: Math.round(((i + 1) / plan.count) * 100), checked: i + 1 });
+        await new Promise((r2) => setTimeout(r2, 0));
       }
     }
-    this.setState({ built: { puzzles, plan, bookId: this.state.activeId }, building: false, progress: 100, pageIdx: 0, view: "preview" });
+    const checkVerdict = `${puzzles.length} of ${puzzles.length} pages check out`;
+    this.setState({ built: { puzzles, plan, bookId: this.state.activeId, checkVerdict }, building: false, progress: 100, checked: puzzles.length, checkVerdict, pageIdx: 0, view: "preview" });
   }
 
   built() {
@@ -1607,9 +1651,25 @@ class Component extends DCLogic {
   }
 
   /* --------------------------------------------------------------- exports */
+  // Board T25: a book containing a failing page cannot reach export. build()
+  // never commits this.state.built until every page has checked out against
+  // puzzle-checks.js (or a sample preview, which is never export-final), so
+  // refusing here whenever there is no clean built() is the same guarantee —
+  // this just stops the interior/HTML exports from acting on an unbuilt or
+  // sample book instead of silently printing an empty page.
+  cannotExportInterior() {
+    if (this.state.sample) return "This is a 6-puzzle sample preview, not the full built book. Build the complete book before exporting.";
+    if (!this.built()) return this.state.buildError || "No build yet — puzzle-checks.js has nothing to verify. Build the book first.";
+    return null;
+  }
+
   print(mode) {
     const sp = this.spec();
     if (!sp) return;
+    if (mode === "interior") {
+      const why = this.cannotExportInterior();
+      if (why) { this.setState({ buildError: why, view: "build" }); return; }
+    }
     const size = mode === "cover" ? `${sp.cover.w}in ${sp.cover.h}in` : mode === "wb" ? "8.5in 11in" : `${sp.trim.w}in ${sp.trim.h}in`;
     if (mode === "wb") {
       this.pstyle.textContent = `@page{size:8.5in 11in;margin:0.5in}@media print{[data-chrome="1"]{display:none!important}` +
@@ -2004,19 +2064,15 @@ class Component extends DCLogic {
   wbGen() {
     if (!this.E) return;
     const s = this.state, th = this.wbThemeObj();
-    let p, threw = null;
-    try { p = this.makeOne(s.wbType, s.wbDiff, th, Math.floor(Math.random() * 1000)); }
-    catch (e) { threw = e; }
-    if (threw || !p) {
-      const reason = threw
-        ? (threw.message || String(threw))
-        : (s.wbType === "crossword" || s.wbType === "fillin")
-          ? `"${th.label}" doesn't have enough clued words yet for a ${this.typeName(s.wbType)}, or no unique arrangement could be found in time.`
-          : `the generator could not produce a valid, uniquely-solvable puzzle for "${th.label}" at ${s.wbDiff} difficulty.`;
+    // Same call boundary as build() (board S27) — the Workbench is a
+    // generator call site too, so it gets no exemption from puzzle-checks.js.
+    const r = this.checkedMake(s.wbType, s.wbDiff, th, Math.floor(Math.random() * 1000));
+    if (!r.ok) {
       this.setState({ wbPuzzle: null, wbError:
-        `${this.typeName(s.wbType)} could not be built: ${reason} Try a different topic or difficulty.` });
+        `${this.typeName(s.wbType)} could not be built: ${r.reason} Try a different topic or difficulty.` });
       return;
     }
+    const p = r.puzzle;
     p.type = s.wbType; p.difficulty = s.wbDiff; p.no = 1; p.theme = th.label;
     this.setState({ wbPuzzle: p, wbError: "", wbEntries: {}, wbCheck: false, wbReveal: false });
   }
@@ -2790,22 +2846,22 @@ class Component extends DCLogic {
         notes: ["“Use this” sends the direction to your book's cover — family, art treatment and banner. Everything else about the cover stays where you set it in step 6."] }),
     ];
     if (v === "build") {
-      const plan = this.plan(false), m = this.meta();
+      const plan = this.plan(false), m = this.meta(), bk = this.built();
       return [
-        this.panel({ title: this.state.buildError ? "Couldn't build" : this.state.building ? "Generating" : this.built() ? "Built" : "Ready to build", strong: true,
-          meta: this.state.buildError ? "stopped" : this.state.building ? `${this.state.progress}%` : this.built() ? `${this.built().puzzles.length} puzzles` : `${plan.count} planned`,
+        this.panel({ title: this.state.buildError ? "Couldn't build" : this.state.building ? "Generating & checking" : bk ? "Built" : "Ready to build", strong: true,
+          meta: this.state.buildError ? "stopped" : this.state.building ? `${this.state.progress}%` : bk ? `${bk.puzzles.length} puzzles` : `${plan.count} planned`,
           hint: this.state.buildError
             ? this.state.buildError
             : this.state.building
-            ? "Verification is the slow part: each sudoku, KenKen, kakuro and nonogram is solved twice to prove exactly one answer exists."
-            : this.built()
-            ? "Built and laid out. Changing anything in steps 1–6 clears the build so you never export a stale book."
+            ? "Every page is checked against puzzle-checks.js — the same rules a solver would use — the moment it's generated. Verification is the slow part: sudoku, KenKen, kakuro and nonogram pages are each solved twice to prove exactly one answer exists."
+            : bk
+            ? `${bk.checkVerdict}. Changing anything in steps 1–6 clears the build so you never export a stale book.`
             : `${plan.count} puzzles across ${c.types.length} type${c.types.length > 1 ? "s" : ""} and ${this.themeObjs().length} topic${this.themeObjs().length > 1 ? "s" : ""}.`,
-          bars: this.state.buildError ? [] : [{ label: "Progress", value: `${this.state.progress}%`, pct: this.state.progress }],
+          bars: this.state.buildError ? [] : [{ label: this.state.building ? `Checking ${this.state.checked} of ${plan.count}` : "Progress", value: `${this.state.progress}%`, pct: this.state.progress }],
           rows: [
             { k: "Puzzles", v: String(plan.count), n: `market expects ${m.expected[0]}–${m.expected[1]}` },
             { k: "Pages laid out", v: `${plan.total} of ${c.pages}` },
-            { k: "Verified unique", v: c.types.some((t) => ["sudoku","sudoku6","sudoku12","xsudoku","irregular","kenken","kakuro","nonogram"].includes(t)) ? "yes" : "n/a", n: "solver-checked" },
+            { k: "Verified against puzzle-checks.js", v: bk ? bk.checkVerdict : "all 21 types, every page", n: "no generator can skip this" },
           ] }),
       ];
     }
@@ -2862,7 +2918,11 @@ class Component extends DCLogic {
             this.opt(false, "Interior PDF", `${sp.trim.label}`, () => this.print("interior"), true),
             this.opt(false, "Cover wrap PDF", `${sp.cover.w}×${sp.cover.h}″`, () => this.print("cover"), true),
             this.opt(false, "Front cover PNG", "300 dpi", () => this.coverPng(), true),
-            this.opt(false, "Editable interior HTML", "hand-tweak", () => this.download(`${slug(c.title)}-interior.html`, this.interiorHtml(), "text/html"), true),
+            this.opt(false, "Editable interior HTML", "hand-tweak", () => {
+              const why = this.cannotExportInterior();
+              if (why) { this.setState({ buildError: why, view: "build" }); return; }
+              this.download(`${slug(c.title)}-interior.html`, this.interiorHtml(), "text/html");
+            }, true),
             this.opt(false, "Listing sheet", "txt", () => this.download(`${slug(c.title)}-listing.txt`, this.metaSheet()), true),
             this.opt(false, "Project file", "json", () => this.saveProject(), true),
           ],
@@ -3052,7 +3112,11 @@ class Component extends DCLogic {
     add(r.rate === 0.6, r.rate === 0.6 ? "60% royalty band" : "Above $9.99 — royalty drops to 35%");
     add(r.net > 1.5, `Net $${r.net.toFixed(2)} per copy`);
     add(c.title.length <= 200 && c.sub.length > 0, c.sub.length ? "Subtitle present (keyword weight)" : "No subtitle — you are giving away keywords");
-    if (this.built() && this.state.sample) add(false, "Preview is a 6-puzzle sample — build fully before export");
+    const bk = this.built();
+    if (bk) add(true, bk.checkVerdict);
+    else if (this.state.buildError) add(false, "Build stopped by puzzle-checks.js — see Build for the page, type and reason");
+    else add(false, "Not built yet — puzzle-checks.js has nothing to verify");
+    if (bk && this.state.sample) add(false, "Preview is a 6-puzzle sample — build fully before export");
     return out;
   }
 
