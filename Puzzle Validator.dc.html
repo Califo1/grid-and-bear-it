@@ -175,7 +175,7 @@ function makeOne(type, diff, theme, i, largePrint) {
     case "irregular": return E.sudokuVariant({ size: 9, variant: "irregular", difficulty: diff });
     case "wordsearch": return E.wordSearch(theme.words.slice(0, lp ? 12 : 16), lp ? 13 : 15, { backwards: diff !== "beginner", diagonal: diff !== "beginner" });
     case "crossword": return E.crossword(theme, diff);
-    case "fillin": return E.fillIn(E.crossword(theme, diff));
+    case "fillin": return E.fillIn(function () { return E.crossword(theme, diff); });
     case "cryptogram": return E.cryptogram(i);
     case "scramble": return E.scramble(theme.words, lp ? 10 : 14);
     case "anagram": return E.anagramMatch(theme.words, lp ? 8 : 10);

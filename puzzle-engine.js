@@ -315,18 +315,31 @@ export function maze(difficulty = "medium") {
 
 /* ------------------------------------------------------------ crossword */
 
+// A themed crossword must actually contain the theme. Without a floor, a
+// theme with few or no clued words of its own still "succeeds" by padding
+// the grid with unrelated clued filler under that theme's heading — a "Dogs"
+// puzzle with none of its own vocabulary in it. Today's theme lists split
+// cleanly into "well covered" (9+ of 20 words clued) and "barely or not at
+// all" (4 or fewer) — nothing sits in between — so 5 is the floor below which
+// crossword() refuses the theme instead.
+const CROSSWORD_CLUE_FLOOR = 5;
+
 export function crossword(theme, difficulty = "medium") {
   const size = difficulty === "beginner" || difficulty === "easy" ? 11 : difficulty === "expert" ? 15 : 13;
   const th = theme && theme.words ? theme : THEMES.none;
   const clueFor = (w) => (th.clues && th.clues[w]) || CLUES[w] || null;
-  const pool = shuffle(th.words.filter((w) => w.length <= size));
-  const extra = shuffle(Object.keys(CLUES)).filter((w) => w.length <= size && !pool.includes(w));
-  const words = pool.concat(extra);
+  // Only words with a real clue are eligible — an unclued word placed in the
+  // grid has nothing honest to print next to its number.
+  const cluedPool = shuffle(th.words.filter((w) => w.length <= size && clueFor(w)));
+  if (th !== THEMES.none && cluedPool.length < CROSSWORD_CLUE_FLOOR) return null;
+  const extra = shuffle(Object.keys(CLUES)).filter((w) => w.length <= size && !cluedPool.includes(w));
+  const words = cluedPool.concat(extra);
+  if (!words.length) return null;
   const grid = Array.from({ length: size }, () => new Array(size).fill(null));
   const entries = [];
   const put = (w, r, c, horiz) => {
     for (let i = 0; i < w.length; i++) grid[r + (horiz ? 0 : i)][c + (horiz ? i : 0)] = w[i];
-    entries.push({ word: w, r, c, horiz, clue: clueFor(w) || `${th.label}: ${w.length} letters` });
+    entries.push({ word: w, r, c, horiz, clue: clueFor(w) });
   };
   const fitsAt = (w, r, c, horiz) => {
     if (horiz ? c + w.length > size : r + w.length > size) return false;

@@ -319,18 +319,31 @@ function maze(difficulty = "medium") {
 
 /* ------------------------------------------------------------ crossword */
 
+// A themed crossword must actually contain the theme. Without a floor, a
+// theme with few or no clued words of its own still "succeeds" by padding
+// the grid with unrelated clued filler under that theme's heading — a "Dogs"
+// puzzle with none of its own vocabulary in it. Today's theme lists split
+// cleanly into "well covered" (9+ of 20 words clued) and "barely or not at
+// all" (4 or fewer) — nothing sits in between — so 5 is the floor below which
+// crossword() refuses the theme instead.
+const CROSSWORD_CLUE_FLOOR = 5;
+
 function crossword(theme, difficulty = "medium") {
   const size = difficulty === "beginner" || difficulty === "easy" ? 11 : difficulty === "expert" ? 15 : 13;
   const th = theme && theme.words ? theme : THEMES.none;
   const clueFor = (w) => (th.clues && th.clues[w]) || CLUES[w] || null;
-  const pool = shuffle(th.words.filter((w) => w.length <= size));
-  const extra = shuffle(Object.keys(CLUES)).filter((w) => w.length <= size && !pool.includes(w));
-  const words = pool.concat(extra);
+  // Only words with a real clue are eligible — an unclued word placed in the
+  // grid has nothing honest to print next to its number.
+  const cluedPool = shuffle(th.words.filter((w) => w.length <= size && clueFor(w)));
+  if (th !== THEMES.none && cluedPool.length < CROSSWORD_CLUE_FLOOR) return null;
+  const extra = shuffle(Object.keys(CLUES)).filter((w) => w.length <= size && !cluedPool.includes(w));
+  const words = cluedPool.concat(extra);
+  if (!words.length) return null;
   const grid = Array.from({ length: size }, () => new Array(size).fill(null));
   const entries = [];
   const put = (w, r, c, horiz) => {
     for (let i = 0; i < w.length; i++) grid[r + (horiz ? 0 : i)][c + (horiz ? i : 0)] = w[i];
-    entries.push({ word: w, r, c, horiz, clue: clueFor(w) || `${th.label}: ${w.length} letters` });
+    entries.push({ word: w, r, c, horiz, clue: clueFor(w) });
   };
   const fitsAt = (w, r, c, horiz) => {
     if (horiz ? c + w.length > size : r + w.length > size) return false;
@@ -857,7 +870,9 @@ function kakuroSolutions(n, block, runs, limit, budget = 120000) {
 function nonogram(difficulty = "medium") {
   const n = { beginner: 5, easy: 8, medium: 10, hard: 12, expert: 15 }[difficulty] || 10;
   const density = 0.55;
-  for (let attempt = 0; attempt < 30; attempt++) {
+  const nodeBudget = 400000;
+  const deadline = Date.now() + 8000;
+  while (Date.now() < deadline) {
     const g = Array.from({ length: n }, () => Array.from({ length: n }, () => (Math.random() < density ? 1 : 0)));
     const clues = (line) => {
       const out = [];
@@ -869,10 +884,13 @@ function nonogram(difficulty = "medium") {
     const rows = g.map(clues);
     const cols = range(n).map((c) => clues(g.map((row) => row[c])));
     if (rows.some((r) => r[0] === 0) || cols.some((c) => c[0] === 0)) continue;
-    if (nonogramSolutions(rows, cols, n, 2) !== 1) continue;
+    // "inconclusive" (budget blown) is treated exactly like "ambiguous" — a
+    // grid we cannot prove unique is not safe to print either.
+    const u = nonogramSolutions(rows, cols, n, 2, nodeBudget);
+    if (u.blown || u.count !== 1) continue;
     return { kind: "nonogram", n, rows, cols, solution: g, difficulty };
   }
-  return nonogram("beginner");
+  return null;
 }
 
 function linePatterns(clue, len) {
@@ -890,10 +908,13 @@ function linePatterns(clue, len) {
   return out;
 }
 
-function nonogramSolutions(rows, cols, n, limit) {
+// Returns { count, blown } — count capped at `limit`; blown means the node
+// budget ran out before the search could finish, which the caller treats
+// exactly like "not unique" rather than assuming success.
+function nonogramSolutions(rows, cols, n, limit, nodeBudget) {
   const rowOpts = rows.map((c) => linePatterns(c, n));
-  if (rowOpts.some((o) => !o.length) || rowOpts.reduce((a, o) => a * Math.min(o.length, 50), 1) > 4e6) return 1;
-  let found = 0;
+  if (rowOpts.some((o) => !o.length)) return { count: 0, blown: false };
+  let found = 0, nodes = 0, blown = false;
   const grid = [];
   const colOk = (depth) => {
     for (let c = 0; c < n; c++) {
@@ -916,17 +937,18 @@ function nonogramSolutions(rows, cols, n, limit) {
     return true;
   };
   const rec = (r) => {
-    if (found >= limit) return;
-    if (r === n) { if (colOk(n)) found++; return; }
+    if (blown || found >= limit) return;
+    if (++nodes > nodeBudget) { blown = true; return; }
+    if (r === n) { found++; return; }
     for (const opt of rowOpts[r]) {
       grid[r] = opt;
       if (colOk(r + 1)) rec(r + 1);
-      if (found >= limit) return;
+      if (blown || found >= limit) return;
     }
     grid.length = r;
   };
   rec(0);
-  return found;
+  return { count: found, blown };
 }
 
 /* ============================================================== logic grids */
@@ -1154,14 +1176,91 @@ function anagramMatch(words, count = 10) {
 
 /* ============================================================== fill-in grid */
 
-function fillIn(crosswordPuzzle) {
-  const p = crosswordPuzzle;
-  return {
-    kind: "fillin", size: p.size, grid: p.grid, entries: p.entries,
-    numbers: p.numbers,
-    bank: p.entries.map((e) => e.word).sort((a, b) => a.length - b.length || a.localeCompare(b)),
-    solution: p.grid,
+// A bank of same-length words does not always drop into a grid's slots only
+// one way — two 5-letter entries can be swappable if nothing crosses to pin
+// them down. makeCrossword is called again on each retry so the arrangement
+// changes; regenerating the fill-in from the same crossword would repeat the
+// same ambiguity forever. Follows the kakuro pattern: generate, verify,
+// discard and rebuild, all under a deadline plus a node budget. On budget
+// exhaustion this returns null rather than shipping an unproven placement.
+function fillIn(makeCrossword, opts = {}) {
+  const budgetMs = opts.budgetMs ?? 5000;
+  const nodeBudget = opts.nodeBudget ?? 400000;
+  const maxAttempts = opts.maxAttempts ?? 30;
+  const deadline = Date.now() + budgetMs;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (Date.now() > deadline) return null;
+    const cw = makeCrossword();
+    if (!cw) return null; // crossword generation itself refused; retrying will not change that
+    const bank = cw.entries.map((e) => e.word).sort((a, b) => a.length - b.length || a.localeCompare(b));
+    const slots = fillInSlots(cw.grid, cw.size);
+    // A crossing entry can fill the one gap cell between two otherwise-separate
+    // entries, welding them into a single contiguous run — the grid then has
+    // fewer slots than bank words and cannot be a valid fill-in at all.
+    if (slots.length !== bank.length) continue;
+    const u = fillInSolutions(slots, bank, 2, nodeBudget);
+    if (u.blown || u.count !== 1) continue; // ambiguous or inconclusive — treated the same
+    return {
+      kind: "fillin", size: cw.size, grid: cw.grid, entries: cw.entries, numbers: cw.numbers,
+      bank, solution: cw.grid.map((row) => row.slice()),
+    };
+  }
+  return null;
+}
+
+function fillInSlots(grid, size) {
+  const out = [];
+  for (let r = 0; r < size; r++) {
+    let run = [];
+    for (let c = 0; c <= size; c++) {
+      const on = c < size && grid[r][c];
+      if (on) run.push([r, c]);
+      else { if (run.length > 1) out.push({ cells: run, horiz: true }); run = []; }
+    }
+  }
+  for (let c = 0; c < size; c++) {
+    let run = [];
+    for (let r = 0; r <= size; r++) {
+      const on = r < size && grid[r][c];
+      if (on) run.push([r, c]);
+      else { if (run.length > 1) out.push({ cells: run, horiz: false }); run = []; }
+    }
+  }
+  return out;
+}
+
+// Returns { count, blown } — count capped at `limit`; blown means the node
+// budget ran out before the search finished, treated exactly like "not
+// unique" by the caller.
+function fillInSolutions(slots, bank, limit, budget) {
+  const order = slots.slice().sort((a, b) => b.cells.length - a.cells.length);
+  const used = new Array(bank.length).fill(false);
+  const board = {};
+  let found = 0, nodes = 0, blown = false;
+  const rec = (i) => {
+    if (blown || found >= limit) return;
+    if (++nodes > budget) { blown = true; return; }
+    if (i === order.length) { found++; return; }
+    const slot = order[i];
+    for (let w = 0; w < bank.length; w++) {
+      if (used[w]) continue;
+      const word = bank[w];
+      if (word.length !== slot.cells.length) continue;
+      let ok = true;
+      const wrote = [];
+      for (let j = 0; j < slot.cells.length; j++) {
+        const k = slot.cells[j][0] + "," + slot.cells[j][1];
+        const have = board[k];
+        if (have && have !== word[j]) { ok = false; break; }
+        if (!have) { board[k] = word[j]; wrote.push(k); }
+      }
+      if (ok) { used[w] = true; rec(i + 1); used[w] = false; }
+      for (const z of wrote) delete board[z];
+      if (blown || found >= limit) return;
+    }
   };
+  rec(0);
+  return { count: found, blown };
 }
 
 /* ================================================================== trivia */

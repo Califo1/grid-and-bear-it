@@ -661,14 +661,14 @@ function defaultCfg() {
 
 class Component extends DCLogic {
   state = {
-    view: "s1", printing: null, pageIdx: 0, zoom: 0.5, building: false, progress: 0,
+    view: "s1", printing: null, pageIdx: 0, zoom: 0.5, building: false, progress: 0, buildError: "",
     books: [{ id: "bk1", cfg: defaultCfg() }], activeId: "bk1",
     built: null, sample: false, search: "", saveNote: "", copied: "",
     aiOpen: false, aiBusy: "", aiLog: [],
     guide: false, guideStep: 0,
     brief: { vibe: "", occasion: "", who: "" },
     auditRaw: "",
-    wbType: "sudoku", wbDiff: "medium", wbTheme: "", wbPuzzle: null,
+    wbType: "sudoku", wbDiff: "medium", wbTheme: "", wbPuzzle: null, wbError: "",
     wbEntries: {}, wbCheck: false, wbReveal: false, wbSize: 560,
     genieSeed: 1, geniePins: [],
   };
@@ -824,7 +824,7 @@ class Component extends DCLogic {
       case "irregular": return X.sudokuVariant({ size: 9, variant: "irregular", difficulty: diff });
       case "wordsearch": return E.wordSearch(theme.words.slice(0, this.cfg().largePrint ? 12 : 16), this.cfg().largePrint ? 13 : 15, { backwards: diff !== "beginner", diagonal: diff !== "beginner" });
       case "crossword": return E.crossword(theme, diff);
-      case "fillin": return X.fillIn(E.crossword(theme, diff));
+      case "fillin": return X.fillIn(() => E.crossword(theme, diff));
       case "cryptogram": return E.cryptogram(i);
       case "scramble": return E.scramble(theme.words, this.cfg().largePrint ? 10 : 14);
       case "anagram": return X.anagramMatch(theme.words, this.cfg().largePrint ? 8 : 10);
@@ -845,7 +845,7 @@ class Component extends DCLogic {
   async build(sample) {
     if (!this.E || this.state.building) return;
     const c = this.cfg(), themes = this.themeObjs();
-    this.setState({ building: true, progress: 0, sample: !!sample, view: "build" });
+    this.setState({ building: true, progress: 0, sample: !!sample, view: "build", buildError: "" });
     await new Promise((r) => setTimeout(r, 30));
     const plan = this.plan(sample);
     const puzzles = [];
@@ -853,9 +853,20 @@ class Component extends DCLogic {
       const type = c.types[i % c.types.length];
       const diff = plan.diffOf(i);
       const th = themes[i % themes.length];
-      let p;
+      let p, threw = null;
       try { p = this.makeOne(type, diff, th, i); }
-      catch (err) { p = this.E.mathDrill(diff); }
+      catch (err) { threw = err; }
+      if (threw || !p) {
+        const reason = threw
+          ? (threw.message || String(threw))
+          : (type === "crossword" || type === "fillin")
+            ? `"${th.label}" doesn't have enough clued words yet for a ${this.typeName(type)}, or no unique arrangement could be found in time.`
+            : `the generator could not produce a valid, uniquely-solvable puzzle for "${th.label}" at ${diff} difficulty.`;
+        this.setState({ building: false, progress: 0, buildError:
+          `Page ${i + 1} (${this.typeName(type)}) could not be built: ${reason} ` +
+          `Choose a different topic or difficulty, or remove ${this.typeName(type)} from the puzzle types in step 5, then build again.` });
+        return;
+      }
       p.theme = th.label; p.difficulty = diff; p.no = i + 1; p.type = type;
       puzzles.push(p);
       if (i % 2 === 1 || i === plan.count - 1) {
@@ -1992,12 +2003,22 @@ class Component extends DCLogic {
 
   wbGen() {
     if (!this.E) return;
-    const s = this.state;
-    let p;
-    try { p = this.makeOne(s.wbType, s.wbDiff, this.wbThemeObj(), Math.floor(Math.random() * 1000)); }
-    catch (e) { p = this.E.mathDrill(s.wbDiff); }
-    p.type = s.wbType; p.difficulty = s.wbDiff; p.no = 1; p.theme = this.wbThemeObj().label;
-    this.setState({ wbPuzzle: p, wbEntries: {}, wbCheck: false, wbReveal: false });
+    const s = this.state, th = this.wbThemeObj();
+    let p, threw = null;
+    try { p = this.makeOne(s.wbType, s.wbDiff, th, Math.floor(Math.random() * 1000)); }
+    catch (e) { threw = e; }
+    if (threw || !p) {
+      const reason = threw
+        ? (threw.message || String(threw))
+        : (s.wbType === "crossword" || s.wbType === "fillin")
+          ? `"${th.label}" doesn't have enough clued words yet for a ${this.typeName(s.wbType)}, or no unique arrangement could be found in time.`
+          : `the generator could not produce a valid, uniquely-solvable puzzle for "${th.label}" at ${s.wbDiff} difficulty.`;
+      this.setState({ wbPuzzle: null, wbError:
+        `${this.typeName(s.wbType)} could not be built: ${reason} Try a different topic or difficulty.` });
+      return;
+    }
+    p.type = s.wbType; p.difficulty = s.wbDiff; p.no = 1; p.theme = th.label;
+    this.setState({ wbPuzzle: p, wbError: "", wbEntries: {}, wbCheck: false, wbReveal: false });
   }
 
   wbSet(key, val) {
@@ -2731,8 +2752,8 @@ class Component extends DCLogic {
       const S = this.state, sc = this.wbScore();
       const themeOpts = [["", "Book's topics"]].concat(Object.entries(this.E.THEMES).map(([k2, t]) => [k2, t.label]));
       return [
-        this.panel({ title: "Generate one", meta: S.wbPuzzle ? this.typeName(S.wbType) : "nothing yet", strong: true,
-          hint: "Independent of your book — change anything here and your project is untouched.",
+        this.panel({ title: "Generate one", meta: S.wbError ? "couldn't build" : S.wbPuzzle ? this.typeName(S.wbType) : "nothing yet", strong: true,
+          hint: S.wbError || "Independent of your book — change anything here and your project is untouched.",
           options: TYPES.map((t) => this.opt(S.wbType === t.id, t.label, t.note, () => this.setState({ wbType: t.id }, () => this.wbGen()))) }),
         this.panel({ title: "Difficulty & topic",
           options: DIFFS.map((d) => this.opt(S.wbDiff === d.id, d.label, d.note, () => this.setState({ wbDiff: d.id }, () => this.wbGen()))),
@@ -2771,14 +2792,16 @@ class Component extends DCLogic {
     if (v === "build") {
       const plan = this.plan(false), m = this.meta();
       return [
-        this.panel({ title: this.state.building ? "Generating" : this.built() ? "Built" : "Ready to build", strong: true,
-          meta: this.state.building ? `${this.state.progress}%` : this.built() ? `${this.built().puzzles.length} puzzles` : `${plan.count} planned`,
-          hint: this.state.building
+        this.panel({ title: this.state.buildError ? "Couldn't build" : this.state.building ? "Generating" : this.built() ? "Built" : "Ready to build", strong: true,
+          meta: this.state.buildError ? "stopped" : this.state.building ? `${this.state.progress}%` : this.built() ? `${this.built().puzzles.length} puzzles` : `${plan.count} planned`,
+          hint: this.state.buildError
+            ? this.state.buildError
+            : this.state.building
             ? "Verification is the slow part: each sudoku, KenKen, kakuro and nonogram is solved twice to prove exactly one answer exists."
             : this.built()
             ? "Built and laid out. Changing anything in steps 1–6 clears the build so you never export a stale book."
             : `${plan.count} puzzles across ${c.types.length} type${c.types.length > 1 ? "s" : ""} and ${this.themeObjs().length} topic${this.themeObjs().length > 1 ? "s" : ""}.`,
-          bars: [{ label: "Progress", value: `${this.state.progress}%`, pct: this.state.progress }],
+          bars: this.state.buildError ? [] : [{ label: "Progress", value: `${this.state.progress}%`, pct: this.state.progress }],
           rows: [
             { k: "Puzzles", v: String(plan.count), n: `market expects ${m.expected[0]}–${m.expected[1]}` },
             { k: "Pages laid out", v: `${plan.total} of ${c.pages}` },

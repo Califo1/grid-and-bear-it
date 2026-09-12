@@ -28,7 +28,8 @@ polish, not missing capability.
 | `puzzle-engine-extra.js` | 13 generators incl. all verifiers | Pure, no DOM |
 | `kdp-guru.js` | All KDP domain knowledge | Single source of truth — do not inline these values elsewhere |
 | `engines.bundle.js` | **Generated.** Never hand-edit | Regenerate after any engine change |
-| `docs/index.html` | GitHub Pages demo copy | Regenerate from the bundle |
+| `docs/index.html` | **Generated.** Never hand-edit | Regenerate from the bundle |
+| `vendor/` | Committed third-party assets (decision SC21) | See below; do not fetch these at build time |
 
 ### Regenerating after an engine change
 
@@ -55,6 +56,62 @@ After regenerating, re-inline the app to a single file and copy it to
 Any change to an engine module that is not followed by regenerating the bundle
 will appear to do nothing in the offline build. This is the most likely source of
 confusion for a new contributor.
+
+**The two commands, run from the repo root, in this order:**
+
+```bash
+node build-bundle.mjs
+node pack-offline.mjs
+```
+
+`build-bundle.mjs` regenerates `engines.bundle.js` from `puzzle-engine.js`,
+`puzzle-engine-extra.js` and `kdp-guru.js`. `pack-offline.mjs` re-inlines
+`Grid & Bear It Studio.dc.html` — plus the freshly regenerated bundle,
+`support.js`, and the vendored React/ReactDOM/fonts in `./vendor` — into both
+`Grid and Bear It Studio (offline app).html` and `docs/index.html`, which come
+out byte-identical. **`engines.bundle.js` and `docs/index.html` are generated
+files: never hand-edit either one.** Edit the source `.js` modules or the DC
+file, then run both commands above to regenerate them.
+
+### `vendor/` — committed third-party assets (SC21)
+
+Per decision SC21, `vendor/` is committed to the repo rather than fetched fresh
+on every packing run. `pack-offline.mjs`'s `ensureVendor()` only re-fetches a
+file here if it is missing, so a clean checkout packs offline after the first
+run. `.gitattributes` marks `vendor/** binary` so git never touches its line
+endings.
+
+Contents, each with its licence committed alongside it:
+
+| File | What it is | Licence |
+| --- | --- | --- |
+| `react.production.min.js` | React 18.3.1 UMD production build | `react.LICENSE` (MIT, Facebook/Meta) |
+| `react-dom.production.min.js` | ReactDOM 18.3.1 UMD production build | `react-dom.LICENSE` (MIT, Facebook/Meta) |
+| `fonts.inline.css` | The app's six Google Fonts families, each `@font-face` block's `src` a base64 `data:font/woff2` URI — no network fetch at runtime | `fonts-licenses/*-OFL.txt`, one per family |
+
+**Correction to the SC21 record:** the fonts are not committed as six separate
+`.woff2` files. `buildFontsCss()` in `pack-offline.mjs` inlines each family's
+woff2 bytes as a base64 data URI directly into `fonts.inline.css`'s
+`@font-face` rules, so there is one CSS file, not six binaries. This is a
+packaging-format difference from what was recorded, not a functional gap: the
+data URIs are the actual font bytes (verified — `fonts.inline.css` contains no
+`http`/`https` src), so the offline build's "no internet required" claim
+holds. It also means fewer than six embedded font files back the six
+families' 19 `@font-face` declarations: Archivo, Baloo 2, Bodoni Moda and
+Nunito are each a single variable-font file covering all of that family's
+declared weights, Bree Serif is one static weight, and IBM Plex Mono is two
+static weights (400, 500) — seven embedded font binaries in total.
+
+Each font family's OFL text was fetched from its own entry in the
+[google/fonts](https://github.com/google/fonts) repo (`ofl/<family>/OFL.txt`),
+not copied from another family — the six differ in their copyright header
+even though the licence body is the same OFL 1.1 boilerplate. IBM Plex Mono's
+was cross-checked against IBM's own font repo (`IBM/plex`) and is
+byte-identical, confirming Google Fonts' OFL designation for it is correct
+rather than a metadata error. The React/ReactDOM `LICENSE` was fetched from
+the `facebook/react` repo at tag `v18.3.1` — the exact version pinned in
+`pack-offline.mjs` — after confirming the vendored `.js` files are
+byte-identical (sha256) to a fresh fetch of that same pinned version.
 
 ## 3. Architecture notes and the reasoning behind them
 
